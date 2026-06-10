@@ -3,6 +3,8 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from google import genai
 import json
 import datetime
+import yt_dlp # YENİ: Ses indirme ajanımız
+import os # YENİ: Dosya silmek için sistem yöneticimiz
 
 # Şifremizi Streamlit'in güvenli kasasından çekiyoruz
 API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -12,7 +14,6 @@ st.set_page_config(page_title="YouTube Asistanım", page_icon="🤖", layout="wi
 st.title("YouTube Asistanım 🤖")
 st.write("Zamanınız değerlidir. Yapay zeka ile izleme alışkanlıklarınızı yönetin ve videoları analiz edin.")
 
-# UYGULAMAYI 3 ŞIK SEKMEYE BÖLÜYORUZ
 sekme1, sekme2, sekme3 = st.tabs(["📅 Geçmiş Analizi", "🧠 Video Değer Analizi", "🔤 Akıllı Altyazı & Oynatıcı"])
 
 # --- 1. SEKME: GEÇMİŞ ANALİZİ ---
@@ -102,6 +103,7 @@ with sekme1:
 # --- 2. SEKME: VİDEO DEĞER ANALİZİ (İzlenir mi?) ---
 with sekme2:
     st.header("Bu Video İzlemeye Değer Mi?")
+    st.info("💡 İpucu: Sistem önce altyazıları arar. Bulamazsa videonun sesini arka planda indirip dinler.")
     analiz_linki = st.text_input("Analiz edilecek YouTube linkini yapıştırın:")
     
     if st.button("Videoyu Değerlendir"):
@@ -111,43 +113,80 @@ with sekme2:
             elif "youtu.be/" in analiz_linki: video_id = analiz_linki.split("youtu.be/")[1][:11]
             
             if video_id:
-                with st.spinner("Videonun içeriği okunuyor..."):
+                client = genai.Client(api_key=API_KEY)
+                talimat = """
+                Sen analitik bir asistansın. Karşındaki kişi YKS'ye hazırlanan 12. sınıf öğrencisi.
+                Sana verilen bu içeriği (metin veya doğrudan ses) incele:
+                1. Ana konu nedir?
+                2. Sınav senesindeki bir öğrenci için bu videoyu izlemek değerli midir yoksa zaman kaybı mıdır? Net bir tavsiye ver.
+                """
+                
+                with st.spinner("Videonun altyazıları aranıyor..."):
+                    altyazi_bulundu = False
+                    tam_metin = ""
                     try:
-                        # İŞTE HATAYI ÇÖZEN MODERN KULLANIM BURASI
                         yt_asistan = YouTubeTranscriptApi()
                         transcript_list = yt_asistan.list(video_id)
                         altyazilar = None
-                        
                         try:
-                            # Önce doğrudan Türkçe var mı diye bak
                             altyazilar = transcript_list.find_transcript(['tr']).fetch()
                         except:
-                            # Yoksa zorla çevir
                             for altyazi in transcript_list:
                                 try:
                                     altyazilar = altyazi.translate('tr').fetch()
                                     break
                                 except:
                                     continue
-                                    
                         if altyazilar:
                             tam_metin = " ".join([parca['text'] if isinstance(parca, dict) else parca.text for parca in altyazilar])
+                            altyazi_bulundu = True
+                    except Exception:
+                        pass # Hata verirse sessizce B planına geçecek
+
+                # --- A PLAN: ALTYAZI VARSA ---
+                if altyazi_bulundu:
+                    st.success("✅ Altyazı bulundu! Yapay zeka metni değerlendiriyor...")
+                    cevap = client.models.generate_content(model='gemini-1.5-flash', contents=f"{talimat}\n\nİçerik Metni: {tam_metin}")
+                    st.write(cevap.text)
+                    
+                # --- B PLAN: ALTYAZI YOKSA SESİ İNDİR VE DİNLE ---
+                else:
+                    st.warning("⚠️ Bu videoda okunabilecek bir altyazı yok. B Planı devrede: Ses analizi yapılıyor...")
+                    with st.spinner("🎧 Videonun sesi arka planda indiriliyor ve yapay zekaya iletiliyor. Bu işlem 15-30 saniye sürebilir..."):
+                        try:
+                            # yt-dlp ile sadece en düşük boyutlu sesi indiriyoruz (hız için)
+                            ydl_opts = {
+                                'format': 'm4a/bestaudio/best',
+                                'outtmpl': f'{video_id}.%(ext)s',
+                                'noplaylist': True,
+                                'quiet': True
+                            }
                             
-                            st.success("İçerik başarıyla okundu. Yapay zeka değerlendiriyor...")
-                            client = genai.Client(api_key=API_KEY)
-                            talimat = f"""
-                            Sen analitik bir asistansın. Karşındaki kişi YKS'ye hazırlanan 12. sınıf öğrencisi.
-                            Şu YouTube videosunun metnini incele: {tam_metin}
-                            1. Ana konu nedir?
-                            2. Sınav senesindeki bir öğrenci için bu videoyu izlemek değerli midir yoksa zaman kaybı mıdır? Net bir tavsiye ver.
-                            """
-                            cevap = client.models.generate_content(model='gemini-1.5-flash', contents=talimat)
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(analiz_linki, download=True)
+                                dosya_adi = ydl.prepare_filename(info)
+                            
+                            st.info("🎙️ Ses dosyası elde edildi. Google sunucularına yükleniyor ve dinleniyor...")
+                            
+                            # İndirilen sesi Gemini'ye yüklüyoruz
+                            yuklenen_ses = client.files.upload(file=dosya_adi)
+                            
+                            # Sesi dinlemesi için gönderiyoruz
+                            cevap = client.models.generate_content(
+                                model='gemini-1.5-flash', 
+                                contents=[yuklenen_ses, talimat]
+                            )
+                            
+                            st.success("🧠 Yapay Zeka sesi kendi kulaklarıyla dinledi ve analiz etti!")
                             st.write(cevap.text)
-                        else:
-                            st.warning("Bu videoda okunabilecek bir metin (altyazı) yok. Uydurma yapmamak için analiz edilemiyor.")
-                    except Exception as e:
-                        st.warning("Bu videonun altyazıları tamamen kapalı veya erişime engellenmiş olabilir.")
-                        st.error(f"Geliştirici Hata Kodu: {e}")
+                            
+                            # Depolama dolmasın diye işimiz biten sesi bilgisayardan siliyoruz
+                            if os.path.exists(dosya_adi):
+                                os.remove(dosya_adi)
+                                
+                        except Exception as e:
+                            st.error("Ses indirme veya dinleme sırasında bir hata oluştu. (Videonun gizlilik ayarları veya IP engeli sebep olmuş olabilir).")
+                            st.error(f"Geliştirici Hata Kodu: {e}")
 
 # --- 3. SEKME: AKILLI ALTYAZI ÇEVİRİCİ ---
 with sekme3:
@@ -164,7 +203,6 @@ with sekme3:
             st.subheader("🔤 Türkçe Altyazı Akışı")
             
             try:
-                # İŞTE HATAYI ÇÖZEN MODERN KULLANIM BURASI
                 yt_asistan = YouTubeTranscriptApi()
                 transcript_list = yt_asistan.list(video_id)
                 altyazilar = None
