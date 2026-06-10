@@ -113,14 +113,16 @@ with sekme2:
             if video_id:
                 with st.spinner("Videonun içeriği okunuyor..."):
                     try:
-                        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                        # İŞTE HATAYI ÇÖZEN MODERN KULLANIM BURASI
+                        yt_asistan = YouTubeTranscriptApi()
+                        transcript_list = yt_asistan.list(video_id)
                         altyazilar = None
                         
                         try:
-                            # Önce Türkçe var mı dene
+                            # Önce doğrudan Türkçe var mı diye bak
                             altyazilar = transcript_list.find_transcript(['tr']).fetch()
                         except:
-                            # Yoksa bulduğu ilk altyazıyı zorla Türkçeye çevir
+                            # Yoksa zorla çevir
                             for altyazi in transcript_list:
                                 try:
                                     altyazilar = altyazi.translate('tr').fetch()
@@ -145,7 +147,7 @@ with sekme2:
                             st.warning("Bu videoda okunabilecek bir metin (altyazı) yok. Uydurma yapmamak için analiz edilemiyor.")
                     except Exception as e:
                         st.warning("Bu videonun altyazıları tamamen kapalı veya erişime engellenmiş olabilir.")
-                        st.error(f"Geliştirici Hata Kodu: {e}") # EĞER GERÇEKTEN BİR HATA VARSA ARTIK BURADA GÖRECEĞİZ
+                        st.error(f"Geliştirici Hata Kodu: {e}")
 
 # --- 3. SEKME: AKILLI ALTYAZI ÇEVİRİCİ ---
 with sekme3:
@@ -162,7 +164,9 @@ with sekme3:
             st.subheader("🔤 Türkçe Altyazı Akışı")
             
             try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                # İŞTE HATAYI ÇÖZEN MODERN KULLANIM BURASI
+                yt_asistan = YouTubeTranscriptApi()
+                transcript_list = yt_asistan.list(video_id)
                 altyazilar = None
                 
                 try:
@@ -172,7 +176,6 @@ with sekme3:
                 except:
                     for altyazi in transcript_list:
                         try:
-                            # Katı kuralı kaldırdık, bulduğun an zorla çevir diyoruz!
                             altyazilar = altyazi.translate('tr').fetch()
                             st.caption(f"🤖 '{altyazi.language}' dilinden otomatik çevrildi.")
                             break
@@ -192,4 +195,4 @@ with sekme3:
                     st.warning("Bu videodaki altyazı maalesef Türkçeye çevrilemiyor.")
             except Exception as e:
                 st.warning("Sistem bu videonun altyazılarına teknik olarak erişemiyor.")
-                st.error(f"Geliştirici Hata Kodu: {e}") # GERÇEK HATAYI BURADA GÖRECEĞİZ
+                st.error(f"Geliştirici Hata Kodu: {e}")
