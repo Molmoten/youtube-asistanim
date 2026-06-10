@@ -91,7 +91,6 @@ with sekme1:
                     Şu video listesini incele ({analiz_baslik}): {videolar_metni}
                     Kısa bir özet ve sınava hazırlık bağlamında net bir koç yorumu yap.
                     """
-                    # Kotası geniş olan 1.5 modeli kullanılıyor
                     cevap_gunluk = client.models.generate_content(model='gemini-1.5-flash', contents=gunluk_talimat)
                     st.write(cevap_gunluk.text)
                     with st.expander("Tam Listeyi Gör"):
@@ -114,16 +113,20 @@ with sekme2:
             if video_id:
                 with st.spinner("Videonun içeriği okunuyor..."):
                     try:
-                        mevcut_altyazilar = YouTubeTranscriptApi.list_transcripts(video_id)
+                        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
                         altyazilar = None
                         
                         try:
-                            altyazilar = mevcut_altyazilar.find_transcript(['tr']).fetch()
+                            # Önce Türkçe var mı dene
+                            altyazilar = transcript_list.find_transcript(['tr']).fetch()
                         except:
-                            for altyazi in mevcut_altyazilar:
-                                if altyazi.is_translatable:
+                            # Yoksa bulduğu ilk altyazıyı zorla Türkçeye çevir
+                            for altyazi in transcript_list:
+                                try:
                                     altyazilar = altyazi.translate('tr').fetch()
                                     break
+                                except:
+                                    continue
                                     
                         if altyazilar:
                             tam_metin = " ".join([parca['text'] if isinstance(parca, dict) else parca.text for parca in altyazilar])
@@ -136,13 +139,13 @@ with sekme2:
                             1. Ana konu nedir?
                             2. Sınav senesindeki bir öğrenci için bu videoyu izlemek değerli midir yoksa zaman kaybı mıdır? Net bir tavsiye ver.
                             """
-                            # Kotası geniş olan 1.5 modeli kullanılıyor
                             cevap = client.models.generate_content(model='gemini-1.5-flash', contents=talimat)
                             st.write(cevap.text)
                         else:
                             st.warning("Bu videoda okunabilecek bir metin (altyazı) yok. Uydurma yapmamak için analiz edilemiyor.")
-                    except:
-                        st.warning("Bu videonun altyazıları tamamen kapalı veya bu bir Shorts videosu. Analiz yapılamıyor.")
+                    except Exception as e:
+                        st.warning("Bu videonun altyazıları tamamen kapalı veya erişime engellenmiş olabilir.")
+                        st.error(f"Geliştirici Hata Kodu: {e}") # EĞER GERÇEKTEN BİR HATA VARSA ARTIK BURADA GÖRECEĞİZ
 
 # --- 3. SEKME: AKILLI ALTYAZI ÇEVİRİCİ ---
 with sekme3:
@@ -156,22 +159,25 @@ with sekme3:
         
         if video_id:
             st.video(izleme_linki)
-            st.subheader("🔤 Türkçe Altyazı Akışı (Yapay Zeka Analizi Yok)")
+            st.subheader("🔤 Türkçe Altyazı Akışı")
             
             try:
-                mevcut_altyazilar = YouTubeTranscriptApi.list_transcripts(video_id)
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
                 altyazilar = None
                 
                 try:
-                    secilen_altyazi = mevcut_altyazilar.find_transcript(['tr'])
+                    secilen_altyazi = transcript_list.find_transcript(['tr'])
                     altyazilar = secilen_altyazi.fetch()
-                    st.caption("💡 Orijinal Türkçe altyazı bulundu.")
+                    st.caption("💡 Doğrudan Türkçe altyazı bulundu.")
                 except:
-                    for altyazi in mevcut_altyazilar:
-                        if altyazi.is_translatable:
+                    for altyazi in transcript_list:
+                        try:
+                            # Katı kuralı kaldırdık, bulduğun an zorla çevir diyoruz!
                             altyazilar = altyazi.translate('tr').fetch()
-                            st.caption(f"🤖 Orijinal Türkçe bulunamadı. '{altyazi.language}' dilinden otomatik çevrildi.")
+                            st.caption(f"🤖 '{altyazi.language}' dilinden otomatik çevrildi.")
                             break
+                        except:
+                            continue
                             
                 if altyazilar:
                     def zaman_formatla(saniye):
@@ -183,6 +189,7 @@ with sekme3:
                         baslangic = parca['start'] if isinstance(parca, dict) else parca.start
                         st.write(f"`[{zaman_formatla(baslangic)}]` : {metin}")
                 else:
-                    st.warning("Çevrilecek altyazı bulunamadı.")
-            except:
-                st.warning("Bu videoda teknik olarak çekilebilecek bir altyazı yok.")
+                    st.warning("Bu videodaki altyazı maalesef Türkçeye çevrilemiyor.")
+            except Exception as e:
+                st.warning("Sistem bu videonun altyazılarına teknik olarak erişemiyor.")
+                st.error(f"Geliştirici Hata Kodu: {e}") # GERÇEK HATAYI BURADA GÖRECEĞİZ
